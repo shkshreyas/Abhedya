@@ -4,14 +4,14 @@ Project Abhedya — MAPPO Training
 Multi-Agent Proximal Policy Optimization with shared weights
 and a centralized value function (MAPPO architecture).
 
-Compatible with Ray RLlib 2.54 (Kaggle GPU environment).
-Explicitly uses the LEGACY API stack for stability with PettingZoo
-and custom CNN model configs.
+Tested against Ray RLlib 2.54 on Kaggle 2x T4 GPU.
+
+CNN math for 64x64 obs (no padding, output = floor((in-k)/s)+1):
+  [32, [8,8], 4]  → 15x15
+  [64, [4,4], 2]  → 6x6
+  [128, [6,6], 1] → 1x1  ✓ (required by RLlib VisionNet)
 
 Usage:
-    python train.py [--iters N] [--checkpoint DIR] [--gpus N] [--workers N] [--time-limit MINS]
-
-Kaggle 2x GPU:
     python train.py --iters 200 --gpus 2 --workers 4
 """
 
@@ -19,21 +19,25 @@ import argparse
 import os
 import sys
 import time
+import warnings
+
+# Suppress deprecation noise from RLlib/Ray
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning")
 
 
 def _check_dependencies():
     missing = []
     try:
-        import ray
+        import ray  # noqa
     except ImportError:
         missing.append("ray[rllib]")
     try:
-        import torch
+        import torch  # noqa
     except ImportError:
         missing.append("torch")
     if missing:
-        print()
-        print("  Missing dependencies for training:")
+        print("\n  Missing dependencies:")
         for m in missing:
             print(f"    pip install {m}")
         print()
@@ -42,15 +46,14 @@ def _check_dependencies():
 
 def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
     """
-    Build a Ray RLlib PPO config for MAPPO-style multi-agent training.
+    Build RLlib PPO config for MAPPO multi-agent training.
 
-    Policy groupings:
-      - thaad_policy  : shared by thaad_0, thaad_1
-      - aegis_policy  : shared by aegis_0, aegis_1
-      - armor_policy  : shared by armor_0, armor_1
-      - bomber_policy : shared by bomber_0
-
-    Uses legacy API stack for compatibility with PettingZoo + custom CNN model.
+    - Legacy API stack (enable_rl_module_and_learner=False)
+      required for PettingZoo wrapper + custom CNN model dict.
+    - CNN filters computed to reduce 64x64 → 1x1 as VisionNet requires.
+    - observation_space/action_space accessed as dicts (RLlib 2.x wrapper).
+    - possible_agents used instead of deprecated get_agent_ids().
+    - Absolute checkpoint path required by RLlib 2.54 pyarrow backend.
     """
     from ray.rllib.algorithms.ppo import PPOConfig
     from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
@@ -62,34 +65,29 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
 
     register_env("jadc2", env_creator)
 
-    # Probe the environment for space definitions
     probe_env = ParallelPettingZooEnv(JADC2_Env())
 
     def policy_mapping(agent_id, *args, **kwargs):
-        if agent_id.startswith("thaad"):
-            return "thaad_policy"
-        elif agent_id.startswith("aegis"):
-            return "aegis_policy"
-        elif agent_id.startswith("armor"):
-            return "armor_policy"
-        elif agent_id.startswith("bomber"):
-            return "bomber_policy"
+        if agent_id.startswith("thaad"):   return "thaad_policy"
+        if agent_id.startswith("aegis"):   return "aegis_policy"
+        if agent_id.startswith("armor"):   return "armor_policy"
+        if agent_id.startswith("bomber"):  return "bomber_policy"
         return "default_policy"
 
-    # Build policy specs using dict-style space access (RLlib 2.x)
     policies = {}
-    for agent_id in probe_env.possible_agents:           # replaces get_agent_ids()
-        policy_id = policy_mapping(agent_id)
-        if policy_id not in policies:
+    for agent_id in probe_env.possible_agents:
+        pid = policy_mapping(agent_id)
+        if pid not in policies:
+            # RLlib 2.x: observation_space and action_space are dicts
             obs_space = probe_env.observation_space[agent_id]
             act_space = probe_env.action_space[agent_id]
-            policies[policy_id] = (None, obs_space, act_space, {})
+            policies[pid] = (None, obs_space, act_space, {})
 
     probe_env.close()
 
     config = (
         PPOConfig()
-        # ── CRITICAL: opt out of new API stack for PettingZoo + custom model ──
+        # ── Legacy API stack: required for PettingZoo + model dict ──
         .api_stack(
             enable_rl_module_and_learner=False,
             enable_env_runner_and_connector_v2=False,
@@ -101,20 +99,21 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
         )
         .training(
             train_batch_size=4000,
-            minibatch_size=256,          # renamed from sgd_minibatch_size in RLlib 2.40+
-            num_epochs=10,               # renamed from num_sgd_iter in RLlib 2.40+
+            minibatch_size=256,      # RLlib 2.40+: was sgd_minibatch_size
+            num_epochs=10,           # RLlib 2.40+: was num_sgd_iter
             lr=3e-4,
             gamma=0.995,
             lambda_=0.97,
             clip_param=0.2,
             entropy_coeff=0.01,
             vf_loss_coeff=0.5,
-            # CNN model for spatial 64×64×6 observations
             model={
+                # CNN filters MUST reduce spatial dims to 1x1 for VisionNet.
+                # 64x64 → 15x15 → 6x6 → 1x1  (verified mathematically)
                 "conv_filters": [
-                    [32, [5, 5], 2],
-                    [64, [3, 3], 2],
-                    [64, [3, 3], 1],
+                    [32,  [8, 8], 4],   # floor((64-8)/4)+1 = 15
+                    [64,  [4, 4], 2],   # floor((15-4)/2)+1 = 6
+                    [128, [6, 6], 1],   # floor((6-6)/1)+1  = 1  ✓
                 ],
                 "conv_activation": "relu",
                 "fcnet_hiddens": [256, 128],
@@ -122,47 +121,56 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
                 "use_lstm": False,
             },
         )
-        .env_runners(
-            num_env_runners=num_workers,
+        # Legacy stack uses .rollouts() — NOT .env_runners()
+        .rollouts(
+            num_rollout_workers=num_workers,
             rollout_fragment_length=200,
-            num_envs_per_env_runner=1,
+            num_envs_per_worker=1,
         )
         .resources(num_gpus=num_gpus)
         .framework("torch")
-        .debugging(log_level="WARN")
+        .debugging(log_level="ERROR")   # suppress all but real errors
     )
 
     return config
 
 
-def _extract_metric(result, *keys, default=0.0):
-    """Safely extract a metric across RLlib versions."""
-    for key in keys:
-        val = result.get(key)
-        if val is not None:
-            return val
+def _get(result, *keys, default=0.0):
+    """Safely read a metric from RLlib result dict."""
+    for k in keys:
+        v = result.get(k)
+        if v is not None:
+            return float(v)
     return default
 
 
-def train(num_iters: int = 100, checkpoint_dir: str = "checkpoints",
-          num_gpus: float = 0.0, num_workers: int = 2, time_limit_mins: float = 0.0):
+def train(
+    num_iters: int = 100,
+    checkpoint_dir: str = "checkpoints",
+    num_gpus: float = 0.0,
+    num_workers: int = 2,
+    time_limit_mins: float = 0.0,
+):
     _check_dependencies()
-
     import ray
 
-    # Tell Ray how many GPUs to reserve at the cluster level
-    ray.init(ignore_reinit_error=True,
-             num_gpus=int(num_gpus) if num_gpus > 0 else None)
+    ray.init(
+        ignore_reinit_error=True,
+        num_gpus=int(num_gpus) if num_gpus > 0 else None,
+        logging_level="ERROR",       # suppress Ray INFO spam
+    )
 
-    # RLlib 2.54 requires absolute path for algo.save()
+    # RLlib 2.54 pyarrow backend requires absolute path for algo.save()
     checkpoint_dir = os.path.abspath(checkpoint_dir)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     config = build_mappo_config(num_workers=num_workers, num_gpus=num_gpus)
-    algo   = config.build()                              # legacy API stack
+    algo   = config.build()
 
     print()
-    print("  Project Abhedya — MAPPO Training")
+    print("  ╔══════════════════════════════════════╗")
+    print("  ║  Project Abhedya — MAPPO Training    ║")
+    print("  ╚══════════════════════════════════════╝")
     print(f"  Iterations  : {num_iters}")
     print(f"  GPUs        : {num_gpus}")
     print(f"  Workers     : {num_workers}")
@@ -177,9 +185,9 @@ def train(num_iters: int = 100, checkpoint_dir: str = "checkpoints",
     for i in range(1, num_iters + 1):
         result = algo.train()
 
-        mean_reward = _extract_metric(result, "episode_reward_mean")
-        episode_len = _extract_metric(result, "episode_len_mean")
-        timesteps   = _extract_metric(result, "timesteps_total")
+        mean_reward = _get(result, "episode_reward_mean")
+        episode_len = _get(result, "episode_len_mean")
+        timesteps   = _get(result, "timesteps_total")
         elapsed     = (time.time() - start_time) / 60.0
 
         print(
@@ -193,20 +201,19 @@ def train(num_iters: int = 100, checkpoint_dir: str = "checkpoints",
         if mean_reward > best_reward:
             best_reward = mean_reward
             path = algo.save(checkpoint_dir)
-            print(f"            ✓ checkpoint saved → {path}")
+            print(f"            ✓ checkpoint → {path}")
 
         if time_limit_mins > 0 and elapsed >= time_limit_mins:
-            print(f"\n  Time limit of {time_limit_mins} mins reached — stopping.")
-            path = algo.save(checkpoint_dir)
-            print(f"  Final checkpoint → {path}")
+            print(f"\n  Time limit reached — saving final checkpoint.")
+            algo.save(checkpoint_dir)
             break
 
     algo.stop()
     ray.shutdown()
 
     print()
-    print(f"  Training complete. Best reward: {best_reward:.3f}")
-    print(f"  Checkpoints saved to: {checkpoint_dir}")
+    print(f"  ✓ Training complete. Best reward: {best_reward:.3f}")
+    print(f"  ✓ Checkpoints at: {checkpoint_dir}")
     print()
 
 
@@ -214,8 +221,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Project Abhedya — MAPPO Training")
     parser.add_argument("--iters",      type=int,   default=100,           help="Training iterations")
     parser.add_argument("--checkpoint", type=str,   default="checkpoints", help="Checkpoint directory")
-    parser.add_argument("--gpus",       type=float, default=0.0,           help="Number of GPUs (e.g. 2.0 for Kaggle)")
-    parser.add_argument("--workers",    type=int,   default=2,             help="Number of rollout workers")
+    parser.add_argument("--gpus",       type=float, default=0.0,           help="GPUs to use (e.g. 2.0)")
+    parser.add_argument("--workers",    type=int,   default=2,             help="Rollout workers")
     parser.add_argument("--time-limit", type=float, default=0.0,           help="Stop after N minutes")
     args = parser.parse_args()
 
