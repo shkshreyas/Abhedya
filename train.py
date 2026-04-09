@@ -127,8 +127,10 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
             num_env_runners=num_workers,
             rollout_fragment_length=200,
             num_envs_per_env_runner=1,
+            num_gpus_per_env_runner=(num_gpus - 1.0) / max(1, num_workers) if num_gpus > 1.0 else 0.0,
+            sample_timeout_s=600.0,
         )
-        .resources(num_gpus=num_gpus)
+        .resources(num_gpus=1.0 if num_gpus >= 1.0 else 0.0)
         .framework("torch")
         .debugging(log_level="ERROR")   # suppress all but real errors
     )
