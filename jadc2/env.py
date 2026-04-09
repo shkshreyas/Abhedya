@@ -49,6 +49,12 @@ from jadc2.entities import (
 )
 from jadc2.renderer import MilitaryRadarRenderer
 
+# Suppress pygame display on headless training environments (Kaggle/servers)
+import os as _os
+if _os.environ.get("SDL_VIDEODRIVER") is None and _os.environ.get("DISPLAY") is None:
+    _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    _os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
 
 def env(render_mode: Optional[str] = None) -> JADC2_Env:
     """Factory function for environment creation."""
@@ -101,6 +107,9 @@ class JADC2_Env(ParallelEnv):
             self._agent_types[aid] = "bomber"
 
         self.agents = list(self.possible_agents)
+
+        # RLlib 2.x requires _agent_ids as a set on the env
+        self._agent_ids = set(self.possible_agents)
 
         self._observation_spaces = {}
         self._action_spaces = {}
