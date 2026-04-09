@@ -154,7 +154,9 @@ def train(num_iters: int = 100, checkpoint_dir: str = "checkpoints",
 
     import ray
 
-    ray.init(ignore_reinit_error=True)
+    # Tell Ray how many GPUs to reserve — critical for multi-GPU training!
+    ray.init(ignore_reinit_error=True,
+             num_gpus=int(num_gpus) if num_gpus > 0 else None)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     config = build_mappo_config(num_workers=num_workers, num_gpus=num_gpus)
