@@ -101,8 +101,8 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
         )
         .training(
             train_batch_size=4000,
-            sgd_minibatch_size=256,
-            num_sgd_iter=10,
+            minibatch_size=256,          # renamed from sgd_minibatch_size in RLlib 2.40+
+            num_epochs=10,               # renamed from num_sgd_iter in RLlib 2.40+
             lr=3e-4,
             gamma=0.995,
             lambda_=0.97,
