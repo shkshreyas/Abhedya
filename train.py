@@ -121,11 +121,11 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
                 "use_lstm": False,
             },
         )
-        # Legacy stack uses .rollouts() — NOT .env_runners()
-        .rollouts(
-            num_rollout_workers=num_workers,
+        # RLlib 2.54: .rollouts() is hard-deprecated, must use .env_runners()
+        .env_runners(
+            num_env_runners=num_workers,
             rollout_fragment_length=200,
-            num_envs_per_worker=1,
+            num_envs_per_env_runner=1,
         )
         .resources(num_gpus=num_gpus)
         .framework("torch")
