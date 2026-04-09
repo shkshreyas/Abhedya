@@ -533,6 +533,5 @@ The Multi-Agent PPO training setup will use:
 
 **Built with 🧠 Reinforcement Learning + 🎯 Tactical AI**
 
-*All Phases Complete — Ready for GPU Deployment*
 
 </div>
