@@ -110,14 +110,15 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
             model={
                 # CNN filters MUST reduce spatial dims to 1x1 for VisionNet.
                 # 64x64 → 15x15 → 6x6 → 1x1  (verified mathematically)
+                # 64x64 → 16x16 → 8x8 → 1x1
                 "conv_filters": [
-                    [32,  [8, 8], 4],   # floor((64-8)/4)+1 = 15
-                    [64,  [4, 4], 2],   # floor((15-4)/2)+1 = 6
-                    [128, [6, 6], 1],   # floor((6-6)/1)+1  = 1  ✓
+                    [32,  [8, 8], 4],
+                    [64,  [4, 4], 2],
+                    [128, [8, 8], 1],   # 8x8 kernel natively reduces 8x8 map to 1x1
                 ],
                 "conv_activation": "relu",
-                "fcnet_hiddens": [256, 128],
-                "fcnet_activation": "relu",
+                "post_fcnet_hiddens": [256, 128],
+                "post_fcnet_activation": "relu",
                 "use_lstm": False,
             },
         )
@@ -168,9 +169,9 @@ def train(
     algo   = config.build()
 
     print()
-    print("  ╔══════════════════════════════════════╗")
-    print("  ║  Project Abhedya — MAPPO Training    ║")
-    print("  ╚══════════════════════════════════════╝")
+    print("  +--------------------------------------+")
+    print("  |  Project Abhedya — MAPPO Training    |")
+    print("  +--------------------------------------+")
     print(f"  Iterations  : {num_iters}")
     print(f"  GPUs        : {num_gpus}")
     print(f"  Workers     : {num_workers}")
