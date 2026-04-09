@@ -94,9 +94,8 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
             policy_mapping_fn=policy_mapping,
         )
         .training(
-            train_batch_size=4000,
-            sgd_minibatch_size=256,
-            num_sgd_iter=10,
+            minibatch_size=256,          # was: sgd_minibatch_size
+            num_epochs=10,               # was: num_sgd_iter
             lr=3e-4,
             gamma=0.995,
             lambda_=0.97,
@@ -119,6 +118,7 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
         .rollouts(
             num_rollout_workers=num_workers,
             rollout_fragment_length=200,
+            num_envs_per_worker=1,
         )
         .resources(num_gpus=num_gpus)
         .framework("torch")
