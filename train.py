@@ -117,8 +117,8 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
                     [64, [3, 3], 1],
                 ],
                 "conv_activation": "relu",
-                "post_fcnet_hiddens": [256, 128],
-                "post_fcnet_activation": "relu",
+                "fcnet_hiddens": [256, 128],
+                "fcnet_activation": "relu",
                 "use_lstm": False,
             },
         )
