@@ -122,10 +122,10 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
                 "use_lstm": False,
             },
         )
-        .rollouts(
-            num_rollout_workers=num_workers,
+        .env_runners(
+            num_env_runners=num_workers,
             rollout_fragment_length=200,
-            num_envs_per_worker=1,
+            num_envs_per_env_runner=1,
         )
         .resources(num_gpus=num_gpus)
         .framework("torch")
