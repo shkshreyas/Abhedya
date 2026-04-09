@@ -80,8 +80,8 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
     for agent_id in probe_env.get_agent_ids():
         policy_id = policy_mapping(agent_id)
         if policy_id not in policies:
-            obs_space    = probe_env.observation_space(agent_id)
-            act_space    = probe_env.action_space(agent_id)
+            obs_space    = probe_env.observation_space[agent_id]
+            act_space    = probe_env.action_space[agent_id]
             policies[policy_id] = (None, obs_space, act_space, {})
 
     probe_env.close()
