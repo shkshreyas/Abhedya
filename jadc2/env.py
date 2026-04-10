@@ -1,17 +1,3 @@
-"""
-JADC2_Env — PettingZoo Parallel API Environment
-=================================================
-Multi-Agent Reinforcement Learning environment for
-Joint All-Domain Command and Control tactical defense.
-
-Blue Team agents learn via MAPPO to defend against
-asymmetric Red Team attacks (drone swarms + ballistic missiles).
-
-Phase 1: Environment structure, spaces, reset, render
-Phase 2: Full step logic, collision, weapon mechanics, reward math
-Phase 3: Red Team AI heuristics, wave escalation
-Phase 4: RLlib MAPPO training integration
-"""
 
 from __future__ import annotations
 
@@ -49,27 +35,19 @@ from jadc2.entities import (
 )
 from jadc2.renderer import MilitaryRadarRenderer
 
-# Suppress pygame display on headless training environments (Kaggle/servers)
 import os as _os
-if _os.environ.get("SDL_VIDEODRIVER") is None and _os.environ.get("DISPLAY") is None:
-    _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    _os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+import platform
+if platform.system() != "Windows":
+    if _os.environ.get("SDL_VIDEODRIVER") is None and _os.environ.get("DISPLAY") is None:
+        _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        _os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 
 def env(render_mode: Optional[str] = None) -> JADC2_Env:
-    """Factory function for environment creation."""
     return JADC2_Env(render_mode=render_mode)
 
 
 class JADC2_Env(ParallelEnv):
-    """
-    JADC2 Multi-Agent Tactical Defense Environment.
-
-    PettingZoo Parallel API — all Blue Team agents act simultaneously.
-
-    Observation: 6-channel 64x64 grid (multi-channel image for CNN).
-    Actions: Heterogeneous per agent type (see config.py).
-    """
 
     metadata = {
         "render_modes": ["human", "rgb_array"],
@@ -108,7 +86,6 @@ class JADC2_Env(ParallelEnv):
 
         self.agents = list(self.possible_agents)
 
-        # RLlib 2.x requires _agent_ids as a set on the env
         self._agent_ids = set(self.possible_agents)
 
         self._observation_spaces = {}
@@ -137,7 +114,6 @@ class JADC2_Env(ParallelEnv):
                     [BOMBER_MOVE_ACTIONS, BOMBER_COMBAT_ACTIONS]
                 )
 
-        # Game state (initialized in reset)
         self._blue_entities: Dict[str, Entity] = {}
         self._red_entities: List[Entity] = []
         self._radar: Optional[RadarStation] = None
@@ -153,7 +129,6 @@ class JADC2_Env(ParallelEnv):
         if self.render_mode == "human":
             self._renderer = MilitaryRadarRenderer(self)
 
-    # ── PettingZoo API — Spaces ──────────────────────────────────────
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent: str) -> spaces.Space:
@@ -163,7 +138,6 @@ class JADC2_Env(ParallelEnv):
     def action_space(self, agent: str) -> spaces.Space:
         return self._action_spaces[agent]
 
-    # ── Reset ────────────────────────────────────────────────────────
 
     def reset(
         self,
@@ -230,7 +204,6 @@ class JADC2_Env(ParallelEnv):
 
         return observations, infos
 
-    # ── Step — Phase 2 + 3 ──────────────────────────────────────────
 
     def step(
         self, actions: Dict[str, Any]
@@ -244,7 +217,6 @@ class JADC2_Env(ParallelEnv):
         self.current_step += 1
         step_rewards = {a: 0.0 for a in self.possible_agents}
 
-        # 1. Process Blue Team actions
         for agent_id, action in actions.items():
             if agent_id not in self._blue_entities:
                 continue
@@ -255,44 +227,33 @@ class JADC2_Env(ParallelEnv):
             reward = self._process_action(agent_id, agent_type, entity, action)
             step_rewards[agent_id] += reward
 
-        # 2. Tick cooldowns
         for ent in self._blue_entities.values():
             if hasattr(ent, "tick_cooldown"):
                 ent.tick_cooldown()
 
-        # 3. Red Team AI and movement (Phase 3)
         self._tick_red_ai()
 
-        # 4. Collision detection — Red entities reaching Blue assets
         damage_events = self._check_collisions()
 
-        # 5. Wave spawning (Phase 3)
         self._check_wave_spawn()
 
-        # 6. Compute rewards
-        # Continuous radar-alive bonus distributed to all agents
         if self._radar and self._radar.operational:
             for a in self.possible_agents:
                 step_rewards[a] += W_RADAR * 0.01
 
-        # Damage penalties — penalise the agent nearest the hit
         for agent_id, damage in damage_events.items():
             step_rewards[agent_id] -= W_DMG * damage
 
-        # Accumulate cumulative rewards
         for a in self.possible_agents:
             self._cumulative_rewards[a] += step_rewards.get(a, 0.0)
 
         self._total_score = sum(self._cumulative_rewards.values())
 
-        # 7. Tick visual effects
         self._effects = [fx for fx in self._effects if not fx.tick()]
 
-        # 8. Build observations
         observations = {agent: self._build_observation(agent) for agent in self.agents}
         rewards = {a: step_rewards.get(a, 0.0) for a in self.agents}
 
-        # 9. Termination conditions
         truncations = {a: self.current_step >= MAX_STEPS for a in self.agents}
         terminations = {a: False for a in self.agents}
 
@@ -323,10 +284,8 @@ class JADC2_Env(ParallelEnv):
 
         return observations, rewards, terminations, truncations, infos
 
-    # ── Action Processing — Phase 2 ──────────────────────────────────
 
     def _process_action(self, agent_id: str, agent_type: str, entity, action) -> float:
-        """Parse and apply an agent's action. Returns step reward."""
         reward = 0.0
 
         if agent_type == "thaad":
@@ -371,11 +330,8 @@ class JADC2_Env(ParallelEnv):
 
         return reward
 
-    # ── Weapon Mechanics ─────────────────────────────────────────────
 
     def _thaad_fire_expensive(self, entity: AirDefenseBattery) -> float:
-        """SM-3 class interceptor — optimised against ballistic missiles."""
-        # Prefer missiles, fall back to drones
         target = self._find_nearest_red_in_range(entity, "missile", entity.engagement_range)
         if target is None:
             target = self._find_nearest_red_in_range(entity, "drone", entity.engagement_range)
@@ -387,7 +343,6 @@ class JADC2_Env(ParallelEnv):
         return 0.0
 
     def _thaad_fire_cheap(self, entity: AirDefenseBattery) -> float:
-        """PAC-3 class interceptor — optimised against drones."""
         target = self._find_nearest_red_in_range(entity, "drone", entity.engagement_range)
         if target is None:
             target = self._find_nearest_red_in_range(entity, "missile", entity.engagement_range)
@@ -399,12 +354,10 @@ class JADC2_Env(ParallelEnv):
         return 0.0
 
     def _aegis_fire_sm3(self, entity: AegisDestroyer, target_index: int) -> float:
-        """Aegis SM-3 — fire at the nth active threat within engagement range."""
         targets_in_range = [
             r for r in self._red_entities
             if r.active and entity.distance_to(r) <= entity.engagement_range
         ]
-        # Sort: missiles first (higher priority), then by distance
         targets_in_range.sort(key=lambda r: (0 if r.entity_type == "missile" else 1,
                                               entity.distance_to(r)))
         if target_index >= len(targets_in_range):
@@ -415,7 +368,6 @@ class JADC2_Env(ParallelEnv):
         return 0.0
 
     def _armor_fire_airburst(self, entity: ArmoredColumn) -> float:
-        """Proximity airburst round — area-of-effect against drone swarms."""
         if not entity.fire_airburst():
             return 0.0
         drones_in_range = [
@@ -424,9 +376,9 @@ class JADC2_Env(ParallelEnv):
             and entity.distance_to(r) <= entity.engagement_range
         ]
         if not drones_in_range:
-            return -W_COST * COST_ARMOR_AIRBURST * 0.3  # Fired blind
+            return -W_COST * COST_ARMOR_AIRBURST * 0.3
 
-        total_reward = -W_COST * COST_ARMOR_AIRBURST  # Base cost
+        total_reward = -W_COST * COST_ARMOR_AIRBURST
         n = len(drones_in_range)
 
         for drone in drones_in_range:
@@ -447,7 +399,6 @@ class JADC2_Env(ParallelEnv):
         return total_reward
 
     def _bomber_drop_bomb(self, entity: StealthBomber) -> float:
-        """Precision bomb — damages all Red entities within drop radius."""
         if not entity.drop_bomb():
             return 0.0
         targets_in_range = [
@@ -487,13 +438,10 @@ class JADC2_Env(ParallelEnv):
         weapon_cost: float,
         hit_prob: float,
     ) -> float:
-        """Roll hit probability, apply damage, spawn effect, return reward."""
         if random.random() < hit_prob:
-            # Hit
-            target.take_damage(target.hp)  # One-shot intercept
+            target.take_damage(target.hp)
             target_value = MISSILE_COST if target.entity_type == "missile" else DRONE_COST
 
-            # Intercept beam effect
             self._effects.append(VisualEffect(
                 x=shooter.x, y=shooter.y,
                 x2=target.x, y2=target.y,
@@ -501,7 +449,6 @@ class JADC2_Env(ParallelEnv):
                 color=(200, 240, 255),
                 lifetime=8, max_lifetime=8,
             ))
-            # Intercept flash at target
             self._effects.append(VisualEffect(
                 x=target.x, y=target.y,
                 effect_type="intercept",
@@ -519,7 +466,6 @@ class JADC2_Env(ParallelEnv):
             net_value = W_HIT * target_value - W_COST * weapon_cost
             return net_value
         else:
-            # Miss
             self._effects.append(VisualEffect(
                 x=target.x, y=target.y,
                 effect_type="miss",
@@ -528,13 +474,8 @@ class JADC2_Env(ParallelEnv):
             ))
             return -W_COST * weapon_cost * 0.4
 
-    # ── Collision Detection — Phase 2 ─────────────────────────────────
 
     def _check_collisions(self) -> Dict[str, float]:
-        """
-        Check if any active Red entity has reached a Blue asset.
-        Returns a dict of {agent_id: damage_amount} for reward penalisation.
-        """
         damage_events: Dict[str, float] = {}
 
         for red in self._red_entities:
@@ -546,7 +487,6 @@ class JADC2_Env(ParallelEnv):
                 else COLLISION_RADIUS_DRONE
             )
 
-            # Check vs each blue entity
             hit_target = None
             for agent_id, blue in self._blue_entities.items():
                 if not blue.active:
@@ -555,7 +495,6 @@ class JADC2_Env(ParallelEnv):
                     hit_target = (agent_id, blue)
                     break
 
-            # Check vs radar
             if hit_target is None and self._radar and self._radar.active:
                 if red.distance_to(self._radar) <= collision_r:
                     hit_target = ("radar", self._radar)
@@ -579,7 +518,6 @@ class JADC2_Env(ParallelEnv):
                             f"HIT: {tid.upper()} took {red.damage} damage from {red.entity_type}"
                         )
                 else:
-                    # Penalise all agents when radar is hit
                     for a in self.possible_agents:
                         damage_events[a] = damage_events.get(a, 0.0) + red.damage * 0.5
                     if self._renderer:
@@ -590,10 +528,8 @@ class JADC2_Env(ParallelEnv):
 
         return damage_events
 
-    # ── Red Team AI — Phase 3 ─────────────────────────────────────────
 
     def _tick_red_ai(self):
-        """Move all active Red Team entities using tactical heuristics."""
         for red in self._red_entities:
             if not red.active:
                 continue
@@ -604,7 +540,6 @@ class JADC2_Env(ParallelEnv):
                     red.move_toward(target.x, target.y)
 
             elif red.entity_type == "missile":
-                # Missiles always pursue radar; occasionally retarget
                 if self._radar and self._radar.active:
                     red.target_x = self._radar.x
                     red.target_y = self._radar.y
@@ -616,19 +551,12 @@ class JADC2_Env(ParallelEnv):
                 red.move_toward_target()
 
     def _pick_drone_target(self, drone: Drone) -> Optional[Entity]:
-        """
-        Drone swarming heuristic:
-        - 45% probability to target the radar (high-value)
-        - Otherwise target the nearest Blue asset
-        """
         if random.random() < DRONE_RADAR_PRIORITY and self._radar and self._radar.active:
             return self._radar
         return self._find_nearest_blue(drone)
 
-    # ── Wave Spawning — Phase 3 ───────────────────────────────────────
 
     def _check_wave_spawn(self):
-        """Trigger scheduled Red Team reinforcement waves."""
         for trigger_step, n_drones, n_missiles in WAVE_SCHEDULE:
             if self.current_step == trigger_step:
                 self._spawn_wave(n_drones, n_missiles)
@@ -640,7 +568,6 @@ class JADC2_Env(ParallelEnv):
                     self._renderer.trigger_wave_warning(self._wave_number)
 
     def _spawn_wave(self, n_drones: int, n_missiles: int, initial: bool = False):
-        """Spawn a wave of drones and ballistic missiles from the northern boundary."""
         spawn = RED_SPAWN_REGION
 
         for _ in range(n_drones):
@@ -662,7 +589,6 @@ class JADC2_Env(ParallelEnv):
                 entity_id=eid,
             ))
 
-    # ── Helpers ──────────────────────────────────────────────────────
 
     def _find_nearest_red_in_range(
         self,
@@ -670,7 +596,6 @@ class JADC2_Env(ParallelEnv):
         target_type: str,
         max_range: float,
     ) -> Optional[Entity]:
-        """Return nearest active Red entity of given type within max_range."""
         best = None
         best_dist = max_range
 
@@ -685,7 +610,6 @@ class JADC2_Env(ParallelEnv):
         return best
 
     def _find_nearest_blue(self, red_entity: Entity) -> Optional[Entity]:
-        """Find nearest active Blue Team entity (including radar) to a Red entity."""
         nearest = None
         min_dist = float("inf")
         for ent in self._blue_entities.values():
@@ -700,23 +624,10 @@ class JADC2_Env(ParallelEnv):
                 nearest = self._radar
         return nearest
 
-    # ── Observation Builder ───────────────────────────────────────────
 
     def _build_observation(self, agent_id: str) -> np.ndarray:
-        """
-        Build a 6-channel GRID_DIM x GRID_DIM observation for the agent.
-
-        Channels:
-          0 — Friendly positions (all blue entities)
-          1 — Enemy drones
-          2 — Enemy missiles
-          3 — Radar coverage map
-          4 — Threat heatmap (higher near threats)
-          5 — Self position + status (ammo/hp as intensity)
-        """
         obs = np.zeros((GRID_DIM, GRID_DIM, NUM_OBS_CHANNELS), dtype=np.float32)
 
-        # Channel 0: Friendly positions
         for ent in self._blue_entities.values():
             if ent.active:
                 gx, gy = self._world_to_grid(ent.x, ent.y)
@@ -725,19 +636,16 @@ class JADC2_Env(ParallelEnv):
             gx, gy = self._world_to_grid(self._radar.x, self._radar.y)
             obs[gy, gx, 0] = 1.0
 
-        # Channel 1: Enemy drones
         for ent in self._red_entities:
             if ent.active and ent.entity_type == "drone":
                 gx, gy = self._world_to_grid(ent.x, ent.y)
                 obs[gy, gx, 1] = 1.0
 
-        # Channel 2: Enemy missiles
         for ent in self._red_entities:
             if ent.active and ent.entity_type == "missile":
                 gx, gy = self._world_to_grid(ent.x, ent.y)
                 obs[gy, gx, 2] = 1.0
 
-        # Channel 3: Radar coverage
         if self._radar and self._radar.operational:
             r_gx, r_gy = self._world_to_grid(self._radar.x, self._radar.y)
             r_cells = int(self._radar.detection_range / CELL_SIZE)
@@ -762,7 +670,6 @@ class JADC2_Env(ParallelEnv):
                             if dist <= r_cells:
                                 obs[ny, nx, 3] = max(obs[ny, nx, 3], 0.7 * (1.0 - dist / (r_cells + 1)))
 
-        # Channel 4: Threat heatmap
         for ent in self._red_entities:
             if ent.active:
                 e_gx, e_gy = self._world_to_grid(ent.x, ent.y)
@@ -777,7 +684,6 @@ class JADC2_Env(ParallelEnv):
                                 heat = threat_val * (1.0 - dist / (threat_radius + 1))
                                 obs[ny, nx, 4] = max(obs[ny, nx, 4], heat)
 
-        # Channel 5: Self position + status
         if agent_id in self._blue_entities:
             ent = self._blue_entities[agent_id]
             if ent.active:
@@ -812,7 +718,6 @@ class JADC2_Env(ParallelEnv):
         gy = int(np.clip(wy / CELL_SIZE, 0, GRID_DIM - 1))
         return gx, gy
 
-    # ── Rendering ────────────────────────────────────────────────────
 
     def render(self):
         if self.render_mode is None:
@@ -849,13 +754,7 @@ class JADC2_Env(ParallelEnv):
             self._renderer.close()
             self._renderer = None
 
-    # ── Global State (for MAPPO centralized critic) ───────────────────
 
     def state(self) -> np.ndarray:
-        """
-        Returns the full global state for centralized training.
-        Concatenates all agents observations along the channel axis.
-        Shape: (GRID_DIM, GRID_DIM, NUM_OBS_CHANNELS * num_agents)
-        """
         all_obs = [self._build_observation(a) for a in self.possible_agents]
         return np.concatenate(all_obs, axis=-1)

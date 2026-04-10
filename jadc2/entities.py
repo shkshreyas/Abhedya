@@ -1,10 +1,3 @@
-"""
-JADC2 Entities — Dataclass definitions for all battlefield objects.
-====================================================================
-Blue Team (learning agents) and Red Team (scripted adversaries).
-Each entity tracks position, health, ammo, cooldowns, and status.
-"""
-
 from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
@@ -21,24 +14,18 @@ from jadc2.config import (
 )
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  BASE ENTITY
-# ══════════════════════════════════════════════════════════════════════
-
 @dataclass
 class Entity:
-    """Base class for all battlefield entities."""
     x: float = 0.0
     y: float = 0.0
     hp: int = 1
     max_hp: int = 1
     active: bool = True
     entity_type: str = "generic"
-    team: str = "neutral"       # "blue" or "red"
+    team: str = "neutral"
     entity_id: str = ""
 
     def take_damage(self, amount: int) -> bool:
-        """Apply damage. Returns True if entity is destroyed."""
         self.hp = max(0, self.hp - amount)
         if self.hp <= 0:
             self.active = False
@@ -46,40 +33,26 @@ class Entity:
         return False
 
     def distance_to(self, other: "Entity") -> float:
-        """Euclidean distance to another entity."""
         return np.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
 
     def distance_to_point(self, px: float, py: float) -> float:
-        """Euclidean distance to an (x, y) coordinate."""
         return np.sqrt((self.x - px) ** 2 + (self.y - py) ** 2)
 
     def clamp_position(self):
-        """Keep entity within world boundaries."""
         self.x = np.clip(self.x, 0, WORLD_SIZE)
         self.y = np.clip(self.y, 0, WORLD_SIZE)
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  BLUE TEAM — LEARNING AGENTS
-# ══════════════════════════════════════════════════════════════════════
-
 @dataclass
 class AirDefenseBattery(Entity):
-    """
-    THAAD / Patriot Battery — Stationary air defense system.
-    Can fire expensive (SM-3) or cheap (PAC-3) interceptors.
-    Can toggle radar between active/passive to avoid anti-radiation missiles.
-    """
     hp: int = THAAD_HP
     max_hp: int = THAAD_HP
     entity_type: str = "thaad"
     team: str = "blue"
 
-    # Ammunition
     ammo_expensive: int = THAAD_AMMO_EXPENSIVE
     ammo_cheap: int = THAAD_AMMO_CHEAP
 
-    # Systems
     radar_active: bool = True
     engagement_range: float = THAAD_RANGE
     cooldown: int = 0
@@ -89,7 +62,6 @@ class AirDefenseBattery(Entity):
         return self.active and self.cooldown == 0
 
     def fire_expensive(self) -> bool:
-        """Fire SM-3 class interceptor. Returns True if successful."""
         if self.can_fire() and self.ammo_expensive > 0:
             self.ammo_expensive -= 1
             self.cooldown = self.cooldown_max
@@ -97,7 +69,6 @@ class AirDefenseBattery(Entity):
         return False
 
     def fire_cheap(self) -> bool:
-        """Fire PAC-3 class interceptor. Returns True if successful."""
         if self.can_fire() and self.ammo_cheap > 0:
             self.ammo_cheap -= 1
             self.cooldown = self.cooldown_max
@@ -105,7 +76,6 @@ class AirDefenseBattery(Entity):
         return False
 
     def toggle_radar(self):
-        """Switch radar active/passive."""
         self.radar_active = not self.radar_active
 
     def tick_cooldown(self):
@@ -115,10 +85,6 @@ class AirDefenseBattery(Entity):
 
 @dataclass
 class AegisDestroyer(Entity):
-    """
-    Aegis Destroyer — Mobile naval platform with SM-3 interceptors.
-    Can share radar telemetry with land-based systems.
-    """
     hp: int = AEGIS_HP
     max_hp: int = AEGIS_HP
     entity_type: str = "aegis"
@@ -160,11 +126,6 @@ class AegisDestroyer(Entity):
 
 @dataclass
 class ArmoredColumn(Entity):
-    """
-    Armored Column / Tank — Mobile ground unit for close-range drone defense.
-    Uses proximity airburst rounds against low-altitude drones.
-    Can secure ground launch zones.
-    """
     hp: int = ARMOR_HP
     max_hp: int = ARMOR_HP
     entity_type: str = "armor"
@@ -175,7 +136,7 @@ class ArmoredColumn(Entity):
     engagement_range: float = ARMOR_RANGE
     cooldown: int = 0
     cooldown_max: int = ARMOR_COOLDOWN
-    is_secured: bool = False   # Holding a defensive position
+    is_secured: bool = False
 
     def can_fire(self) -> bool:
         return self.active and self.cooldown == 0
@@ -204,9 +165,6 @@ class ArmoredColumn(Entity):
 
 @dataclass
 class StealthBomber(Entity):
-    """
-    Stealth Bomber — Fast, fragile air unit for striking Red Team launch sites.
-    """
     hp: int = BOMBER_HP
     max_hp: int = BOMBER_HP
     entity_type: str = "bomber"
@@ -243,10 +201,6 @@ class StealthBomber(Entity):
 
 @dataclass
 class RadarStation(Entity):
-    """
-    Central Early-Warning Radar — Static high-value asset.
-    Provides long-range detection. Primary Red Team target.
-    """
     hp: int = RADAR_HP
     max_hp: int = RADAR_HP
     entity_type: str = "radar"
@@ -262,13 +216,8 @@ class RadarStation(Entity):
         return destroyed
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  RED TEAM — SCRIPTED ADVERSARIES (Spawning logic in Phase 3)
-# ══════════════════════════════════════════════════════════════════════
-
 @dataclass
 class Drone(Entity):
-    """Low-cost decoy drone — cheap, expendable, fast."""
     hp: int = DRONE_HP
     max_hp: int = DRONE_HP
     entity_type: str = "drone"
@@ -281,7 +230,6 @@ class Drone(Entity):
     trail_max: int = 12
 
     def move_toward(self, tx: float, ty: float):
-        """Move directly toward a target position."""
         if not self.active:
             return
         self.trail.append((self.x, self.y))
@@ -298,7 +246,6 @@ class Drone(Entity):
 
 @dataclass
 class BallisticMissile(Entity):
-    """High-value ballistic missile — targets Blue Team radar systems."""
     hp: int = MISSILE_HP
     max_hp: int = MISSILE_HP
     entity_type: str = "missile"
@@ -307,12 +254,11 @@ class BallisticMissile(Entity):
     speed: float = MISSILE_SPEED
     damage: int = MISSILE_DAMAGE
     target_x: float = 500.0
-    target_y: float = 700.0   # Default: radar position
+    target_y: float = 700.0
     trail: list = field(default_factory=list)
     trail_max: int = 22
 
     def move_toward_target(self):
-        """Fly toward assigned target."""
         if not self.active:
             return
         self.trail.append((self.x, self.y))
@@ -327,27 +273,21 @@ class BallisticMissile(Entity):
             self.clamp_position()
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  VISUAL EFFECTS (for renderer)
-# ══════════════════════════════════════════════════════════════════════
-
 @dataclass
 class VisualEffect:
-    """Transient visual effect for the renderer (explosions, flashes, beams)."""
     x: float = 0.0
     y: float = 0.0
-    x2: float = 0.0            # Endpoint for beam effects
+    x2: float = 0.0
     y2: float = 0.0
-    effect_type: str = "explosion"  # "explosion", "intercept", "flash", "beam", "miss"
+    effect_type: str = "explosion"
     radius: float = 10.0
     max_radius: float = 40.0
     alpha: int = 255
-    lifetime: int = 15         # Frames remaining
+    lifetime: int = 15
     max_lifetime: int = 15
     color: tuple = (255, 180, 50)
 
     def tick(self) -> bool:
-        """Advance effect by one frame. Returns True if expired."""
         self.lifetime -= 1
         self.radius = min(self.radius + 2.5, self.max_radius)
         self.alpha = max(0, int(255 * (self.lifetime / max(1, self.max_lifetime))))

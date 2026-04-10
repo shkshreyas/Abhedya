@@ -1,9 +1,3 @@
-"""
-JADC2 Demo — Visual test of the tactical defense simulation.
-
-Runs the environment with random actions and displays the
-military radar HUD. Press ESC or close the window to exit.
-"""
 
 import sys
 import numpy as np

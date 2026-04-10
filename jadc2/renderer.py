@@ -1,19 +1,3 @@
-"""
-JADC2 Military Radar HUD Renderer
-===================================
-Premium dark-themed tactical display using pygame.
-
-Features:
-  - Rotating phosphor radar sweep with fade trail
-  - Entity position trails for drones and missiles
-  - Intercept beam effects (shooter to target)
-  - Particle explosion system
-  - CRT scanline overlay
-  - Wave incoming alerts
-  - Real-time kill counter and score tracker
-  - Glowing icons and HP bars
-  - Animated threat level indicator
-"""
 
 import math
 import time
@@ -33,7 +17,6 @@ from jadc2.config import (
 
 
 class Particle:
-    """A single particle for explosion effects."""
     __slots__ = ("x", "y", "vx", "vy", "color", "lifetime", "max_lifetime", "size")
 
     def __init__(self, x, y, vx, vy, color, lifetime, size=2):
@@ -60,13 +43,6 @@ class Particle:
 
 
 class MilitaryRadarRenderer:
-    """
-    Renders the JADC2 battlefield as a dark military radar HUD.
-
-    Layout:
-      Left panel   — Battlefield viewport (750x900 px)
-      Right panel  — Status HUD (450x900 px)
-    """
 
     def __init__(self, env):
         if not HAS_PYGAME:
@@ -83,42 +59,33 @@ class MilitaryRadarRenderer:
         self.font_small = None
         self.font_tiny = None
 
-        # Animation state
         self.sweep_angle = 0.0
         self.sweep_speed = 0.022
         self.frame_count = 0
         self.blink_state = True
         self.blink_timer = 0
 
-        # Pre-rendered surfaces
         self._grid_surface = None
         self._scanline_surface = None
         self._hud_bg_surface = None
 
-        # Particle system
         self._particles: list = []
 
-        # Event log
         self.event_log: list = []
         self.max_events = 9
 
-        # Stats
         self.kill_count = 0
         self.score = 0.0
 
-        # Wave warning
         self._wave_warning_timer = 0
         self._wave_warning_number = 0
 
-        # Threat history for waveform chart
         self._threat_history: list = []
         self._threat_history_max = 80
 
-        # Processed explosion origins (to avoid duplicate particle spawns)
         self._seen_effect_ids: set = set()
 
     def initialize(self):
-        """Initialize pygame and pre-render static surfaces."""
         if self.initialized:
             return
 
@@ -143,7 +110,6 @@ class MilitaryRadarRenderer:
         self._build_hud_background()
         self.initialized = True
 
-    # ── Static Surface Builders ───────────────────────────────────────
 
     def _build_grid_surface(self):
         self._grid_surface = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
@@ -174,7 +140,6 @@ class MilitaryRadarRenderer:
         self._hud_bg_surface = pygame.Surface((HUD_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         self._hud_bg_surface.fill(Colors.BG_PANEL)
 
-        # Left glowing border
         for i in range(5):
             alpha = 90 - i * 18
             pygame.draw.line(
@@ -183,7 +148,6 @@ class MilitaryRadarRenderer:
                 (i, 0), (i, SCREEN_HEIGHT),
             )
 
-        # Section dividers
         for sy in [60, 260, 450, 590]:
             for i in range(3):
                 pygame.draw.line(
@@ -197,14 +161,12 @@ class MilitaryRadarRenderer:
                 (8, sy - 1), (HUD_WIDTH - 8, sy - 1),
             )
 
-    # ── Coordinate Conversion ─────────────────────────────────────────
 
     def world_to_screen(self, wx: float, wy: float) -> tuple:
         sx = int((wx / WORLD_SIZE) * BATTLEFIELD_SIZE)
         sy = int((wy / WORLD_SIZE) * BATTLEFIELD_SIZE)
         return max(0, min(sx, BATTLEFIELD_SIZE - 1)), max(0, min(sy, BATTLEFIELD_SIZE - 1))
 
-    # ── Main Render Loop ──────────────────────────────────────────────
 
     def render(self, env_state: dict):
         if not self.initialized:
@@ -225,20 +187,16 @@ class MilitaryRadarRenderer:
         if self._wave_warning_timer > 0:
             self._wave_warning_timer -= 1
 
-        # Update threat history
         red_entities = env_state.get("red_entities", [])
         active_count = sum(1 for r in red_entities if r.active)
         self._threat_history.append(active_count)
         if len(self._threat_history) > self._threat_history_max:
             self._threat_history.pop(0)
 
-        # Spawn particles for new explosion effects
         self._process_effects_for_particles(env_state.get("effects", []))
 
-        # Tick particles
         self._particles = [p for p in self._particles if not p.tick()]
 
-        # Draw
         self.screen.fill(Colors.BG_DEEP)
         self._draw_battlefield_bg()
         self.screen.blit(self._grid_surface, (0, 0))
@@ -258,10 +216,8 @@ class MilitaryRadarRenderer:
         self.clock.tick(FPS)
         return True
 
-    # ── Particle System ───────────────────────────────────────────────
 
     def _process_effects_for_particles(self, effects):
-        """Spawn particles for fresh explosion effects."""
         for fx in effects:
             if fx.effect_type in ("explosion",) and fx.lifetime == fx.max_lifetime - 1:
                 sx, sy = self.world_to_screen(fx.x, fx.y)
@@ -273,7 +229,6 @@ class MilitaryRadarRenderer:
             speed = random.uniform(0.8, 3.5)
             vx = math.cos(angle) * speed
             vy = math.sin(angle) * speed
-            # Slight color variation
             r = min(255, base_color[0] + random.randint(-30, 30))
             g = min(255, base_color[1] + random.randint(-20, 20))
             b = min(255, base_color[2] + random.randint(-20, 20))
@@ -289,10 +244,8 @@ class MilitaryRadarRenderer:
             pygame.draw.circle(surf, (*p.color, p.alpha), (p.size + 1, p.size + 1), p.size)
             self.screen.blit(surf, (int(p.x) - p.size, int(p.y) - p.size))
 
-    # ── Drawing Sub-methods ───────────────────────────────────────────
 
     def _draw_battlefield_bg(self):
-        """Subtle radial gradient from battlefield center."""
         cx, cy = BATTLEFIELD_SIZE // 2, BATTLEFIELD_SIZE // 2
         for i in range(6):
             r = BATTLEFIELD_SIZE // 2 - i * (BATTLEFIELD_SIZE // 12)
@@ -303,7 +256,6 @@ class MilitaryRadarRenderer:
             self.screen.blit(surf, (cx - r, cy - r))
 
     def _draw_trails(self, state: dict):
-        """Draw position trails for drones and missiles."""
         trail_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
 
         for ent in state.get("red_entities", []):
@@ -326,7 +278,6 @@ class MilitaryRadarRenderer:
         self.screen.blit(trail_surf, (0, 0))
 
     def _draw_radar_sweep(self, state: dict):
-        """Rotating radar sweep line with phosphor fade trail."""
         radar = state.get("radar")
         if not radar or not radar.operational:
             return
@@ -335,7 +286,6 @@ class MilitaryRadarRenderer:
         sweep_radius = int((radar.detection_range / WORLD_SIZE) * BATTLEFIELD_SIZE)
         self.sweep_angle += self.sweep_speed
 
-        # Fading trail
         num_trail = 45
         trail_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
         for i in range(num_trail):
@@ -348,7 +298,6 @@ class MilitaryRadarRenderer:
             pygame.draw.line(trail_surf, (0, 255, 65, alpha), (cx, cy), (ex, ey), 1)
         self.screen.blit(trail_surf, (0, 0))
 
-        # Main sweep line with glow
         end_x = int(cx + math.cos(self.sweep_angle) * sweep_radius)
         end_y = int(cy + math.sin(self.sweep_angle) * sweep_radius)
         glow_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
@@ -356,7 +305,6 @@ class MilitaryRadarRenderer:
         self.screen.blit(glow_surf, (0, 0))
         pygame.draw.line(self.screen, Colors.RADAR_GREEN, (cx, cy), (end_x, end_y), 1)
 
-        # Center dot
         pygame.draw.circle(self.screen, Colors.RADAR_GREEN, (cx, cy), 3)
         pygame.gfxdraw.aacircle(self.screen, cx, cy, 3, Colors.RADAR_GREEN)
 
@@ -449,11 +397,9 @@ class MilitaryRadarRenderer:
             pygame.gfxdraw.filled_polygon(self.screen, points, color)
             pygame.gfxdraw.aapolygon(self.screen, points, color)
 
-        # Callsign
         label = self.font_tiny.render(entity.entity_id.upper(), True, Colors.HUD_TEXT)
         self.screen.blit(label, (x + 12, y - 6))
 
-        # HP bar
         if hasattr(entity, "max_hp") and entity.max_hp > 0:
             bar_w, bar_h = 16, 2
             hp_frac = entity.hp / entity.max_hp
@@ -517,7 +463,6 @@ class MilitaryRadarRenderer:
         self.screen.blit(glow_s, (x - 25, y - 25))
 
     def _draw_effects(self, state: dict):
-        """Draw transient visual effects: explosions, intercept rings, beams, misses."""
         for fx in state.get("effects", []):
             sx, sy = self.world_to_screen(fx.x, fx.y)
             r = max(1, int(fx.radius))
@@ -542,7 +487,6 @@ class MilitaryRadarRenderer:
                 sx2, sy2 = self.world_to_screen(fx.x2, fx.y2)
                 beam_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
                 pygame.draw.line(beam_surf, (*fx.color, alpha), (sx, sy), (sx2, sy2), 2)
-                # Brighter core
                 pygame.draw.line(beam_surf, (255, 255, 255, alpha // 2), (sx, sy), (sx2, sy2), 1)
                 self.screen.blit(beam_surf, (0, 0))
 
@@ -552,7 +496,6 @@ class MilitaryRadarRenderer:
                 self.screen.blit(s, (sx - r - 2, sy - r - 2))
 
     def _draw_wave_warning(self):
-        """Flash a large warning overlay when a new wave is incoming."""
         if self._wave_warning_timer <= 0:
             return
 
@@ -571,7 +514,6 @@ class MilitaryRadarRenderer:
         ty = BATTLEFIELD_SIZE // 2 - txt.get_height() // 2
         self.screen.blit(txt, (tx, ty))
 
-    # ── HUD Panel ─────────────────────────────────────────────────────
 
     def _draw_top_bar(self, state: dict):
         bar_h = 32
@@ -613,7 +555,6 @@ class MilitaryRadarRenderer:
         px = BATTLEFIELD_SIZE
         self.screen.blit(self._hud_bg_surface, (px, 0))
 
-        # Section 1: Force Status
         y = 40
         self._hud_section_header(px + 10, y, "FORCE STATUS", Colors.HUD_ACCENT)
         y += 28
@@ -628,7 +569,6 @@ class MilitaryRadarRenderer:
         if radar and y <= 250:
             self._draw_radar_status_row(px + 10, y, radar)
 
-        # Section 2: Threat Board
         y = 268
         self._hud_section_header(px + 10, y, "THREAT BOARD", Colors.HUD_CRITICAL)
         y += 28
@@ -649,10 +589,8 @@ class MilitaryRadarRenderer:
         self._draw_threat_bar(px + 10, y, threat_level)
         y += 22
 
-        # Threat history waveform
         self._draw_threat_waveform(px + 10, y + 8)
 
-        # Section 3: Ammunition
         y = 455
         self._hud_section_header(px + 10, y, "AMMUNITION", Colors.HUD_WARNING)
         y += 28
@@ -663,7 +601,6 @@ class MilitaryRadarRenderer:
             self._draw_ammo_row(px + 10, y, ent)
             y += 20
 
-        # Section 4: Event Log
         y = 596
         self._hud_section_header(px + 10, y, "EVENT LOG", Colors.HUD_TEXT)
         y += 24
@@ -743,7 +680,6 @@ class MilitaryRadarRenderer:
         self.screen.blit(lbl, (x + bar_w // 2 - lbl.get_width() // 2, y - 14))
 
     def _draw_threat_waveform(self, x: int, y: int):
-        """Mini waveform showing threat count over recent steps."""
         if len(self._threat_history) < 2:
             return
 
@@ -803,10 +739,8 @@ class MilitaryRadarRenderer:
                 pygame.draw.line(vig, (0, 0, 0, alpha), (0, i), (corner_size, i))
             self.screen.blit(vig, (cx, cy))
 
-    # ── API ───────────────────────────────────────────────────────────
 
     def trigger_wave_warning(self, wave_number: int):
-        """Activate the wave warning overlay."""
         self._wave_warning_timer  = 90
         self._wave_warning_number = wave_number
 
@@ -822,5 +756,4 @@ class MilitaryRadarRenderer:
             self.initialized = False
 
 
-# Required import for particle spawning
 import random

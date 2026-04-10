@@ -1,23 +1,3 @@
-"""
-JADC2 Evaluation — Phase 5
-============================
-Compares two agent policies over N episodes:
-
-  1. ScriptedBaseline — deterministic fire-at-nearest heuristic
-  2. TrainedAgent     — loads MAPPO weights from a checkpoint (optional)
-
-Metrics reported per policy:
-  - Mean episode reward
-  - Mean kills
-  - Radar survival rate (fraction of episodes radar survives)
-  - Mean episode length
-  - Cost efficiency (kills per unit ammo cost)
-
-Usage:
-    python evaluate.py                            # scripted baseline only
-    python evaluate.py --checkpoint checkpoints  # compare vs trained model
-    python evaluate.py --episodes 50 --render    # render episodes visually
-"""
 
 import argparse
 import time
@@ -36,18 +16,8 @@ from jadc2.config import (
 )
 
 
-# ── Scripted Baseline ─────────────────────────────────────────────────
 
 class ScriptedBaseline:
-    """
-    Deterministic fire-at-nearest heuristic.
-
-    Rules:
-      - THAAD: always fires cheap interceptor at nearest drone; expensive at nearest missile
-      - Aegis: moves toward nearest threat, fires SM-3 at target index 0
-      - Armor: moves toward nearest drone cluster, fires airburst when threats are close
-      - Bomber: flies north toward threats, drops bomb when near a cluster
-    """
 
     def compute_actions(self, env: JADC2_Env) -> Dict[str, any]:
         actions = {}
@@ -64,11 +34,11 @@ class ScriptedBaseline:
 
             if agent_type == "thaad":
                 if missiles and entity.can_fire() and entity.ammo_expensive > 0:
-                    actions[agent_id] = 1  # fire expensive at missile
+                    actions[agent_id] = 1
                 elif drones and entity.can_fire() and entity.ammo_cheap > 0:
-                    actions[agent_id] = 2  # fire cheap at drone
+                    actions[agent_id] = 2
                 else:
-                    actions[agent_id] = 0  # noop
+                    actions[agent_id] = 0
 
             elif agent_type == "aegis":
                 nearest = self._nearest(entity, active_red)
@@ -86,7 +56,7 @@ class ScriptedBaseline:
             elif agent_type == "bomber":
                 all_threats = active_red
                 nearest = self._nearest(entity, all_threats)
-                move = self._move_toward_8dir(entity, nearest) if nearest else 1  # default: fly north
+                move = self._move_toward_8dir(entity, nearest) if nearest else 1
                 in_range = nearest and entity.distance_to(nearest) <= entity.engagement_range
                 combat = 1 if (in_range and entity.ammo_bombs > 0 and entity.can_fire()) else 0
                 actions[agent_id] = np.array([move, combat])
@@ -106,29 +76,27 @@ class ScriptedBaseline:
         dx = target.x - entity.x
         dy = target.y - entity.y
         if abs(dx) >= abs(dy):
-            return 3 if dx > 0 else 4  # E or W
+            return 3 if dx > 0 else 4
         else:
-            return 1 if dy < 0 else 2  # N or S
+            return 1 if dy < 0 else 2
 
     @staticmethod
     def _move_toward_8dir(entity, target) -> int:
         if target is None:
-            return 1  # north
+            return 1
         dx = target.x - entity.x
         dy = target.y - entity.y
-        if dx > 0 and dy < 0:  return 5  # NE
-        if dx < 0 and dy < 0:  return 6  # NW
-        if dx > 0 and dy > 0:  return 7  # SE
-        if dx < 0 and dy > 0:  return 8  # SW
+        if dx > 0 and dy < 0:  return 5
+        if dx < 0 and dy < 0:  return 6
+        if dx > 0 and dy > 0:  return 7
+        if dx < 0 and dy > 0:  return 8
         if abs(dx) > abs(dy):
             return 3 if dx > 0 else 4
         return 1 if dy < 0 else 2
 
 
-# ── Trained Agent Wrapper ─────────────────────────────────────────────
 
 class TrainedAgent:
-    """Loads a trained RLlib checkpoint and uses it for inference."""
 
     def __init__(self, checkpoint_path: str):
         try:
@@ -165,7 +133,6 @@ class TrainedAgent:
         return "default_policy"
 
 
-# ── Evaluation Runner ─────────────────────────────────────────────────
 
 def run_episodes(
     policy,
@@ -173,9 +140,6 @@ def run_episodes(
     render: bool = False,
     label: str = "Policy",
 ) -> Dict[str, float]:
-    """
-    Run N evaluation episodes and return aggregate statistics.
-    """
     stats = defaultdict(list)
 
     for ep in range(num_episodes):
@@ -203,7 +167,6 @@ def run_episodes(
         stats["ep_len"].append(env.current_step)
         stats["radar_survived"].append(1 if env._radar and env._radar.operational else 0)
 
-        # Rough cost efficiency: kills / total ammo spent (estimated from remaining ammo)
         ammo_remaining = 0
         ammo_max = 0
         for ent in env._blue_entities.values():
@@ -238,7 +201,6 @@ def run_episodes(
 
 
 def print_comparison(results: Dict[str, Dict[str, float]]):
-    """Pretty-print a comparison table of all evaluated policies."""
     print()
     print("  Evaluation Results")
     print()
@@ -276,7 +238,6 @@ def main():
 
     results = {}
 
-    # Always evaluate the scripted baseline
     print("  Running scripted baseline...")
     print()
     baseline = ScriptedBaseline()
@@ -287,7 +248,6 @@ def main():
         label="Scripted",
     )
 
-    # Evaluate trained agent if checkpoint provided
     if args.checkpoint:
         print()
         print(f"  Loading trained agent from {args.checkpoint}...")
@@ -302,7 +262,6 @@ def main():
 
     print_comparison(results)
 
-    # Winner analysis
     if len(results) > 1:
         names  = list(results.keys())
         kills  = {n: results[n]["kills"]   for n in names}

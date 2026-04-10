@@ -1,19 +1,3 @@
-"""
-Project Abhedya — MAPPO Training
-==================================
-Multi-Agent Proximal Policy Optimization with shared weights
-and a centralized value function (MAPPO architecture).
-
-Tested against Ray RLlib 2.54 on Kaggle 2x T4 GPU.
-
-CNN math for 64x64 obs (no padding, output = floor((in-k)/s)+1):
-  [32, [8,8], 4]  → 15x15
-  [64, [4,4], 2]  → 6x6
-  [128, [6,6], 1] → 1x1  ✓ (required by RLlib VisionNet)
-
-Usage:
-    python train.py --iters 200 --gpus 2 --workers 4
-"""
 
 import argparse
 import os
@@ -21,7 +5,6 @@ import sys
 import time
 import warnings
 
-# Suppress deprecation noise from RLlib/Ray
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning")
 
@@ -29,11 +12,11 @@ os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning")
 def _check_dependencies():
     missing = []
     try:
-        import ray  # noqa
+        import ray
     except ImportError:
         missing.append("ray[rllib]")
     try:
-        import torch  # noqa
+        import torch
     except ImportError:
         missing.append("torch")
     if missing:
@@ -45,16 +28,6 @@ def _check_dependencies():
 
 
 def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
-    """
-    Build RLlib PPO config for MAPPO multi-agent training.
-
-    - Legacy API stack (enable_rl_module_and_learner=False)
-      required for PettingZoo wrapper + custom CNN model dict.
-    - CNN filters computed to reduce 64x64 → 1x1 as VisionNet requires.
-    - observation_space/action_space accessed as dicts (RLlib 2.x wrapper).
-    - possible_agents used instead of deprecated get_agent_ids().
-    - Absolute checkpoint path required by RLlib 2.54 pyarrow backend.
-    """
     from ray.rllib.algorithms.ppo import PPOConfig
     from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
     from ray.tune.registry import register_env
@@ -78,7 +51,6 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
     for agent_id in probe_env.possible_agents:
         pid = policy_mapping(agent_id)
         if pid not in policies:
-            # RLlib 2.x: observation_space and action_space are dicts
             obs_space = probe_env.observation_space[agent_id]
             act_space = probe_env.action_space[agent_id]
             policies[pid] = (None, obs_space, act_space, {})
@@ -87,7 +59,6 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
 
     config = (
         PPOConfig()
-        # ── Legacy API stack: required for PettingZoo + model dict ──
         .api_stack(
             enable_rl_module_and_learner=False,
             enable_env_runner_and_connector_v2=False,
@@ -99,8 +70,8 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
         )
         .training(
             train_batch_size=4000,
-            minibatch_size=256,      # RLlib 2.40+: was sgd_minibatch_size
-            num_epochs=10,           # RLlib 2.40+: was num_sgd_iter
+            minibatch_size=256,
+            num_epochs=10,
             lr=3e-4,
             gamma=0.995,
             lambda_=0.97,
@@ -108,13 +79,10 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
             entropy_coeff=0.01,
             vf_loss_coeff=0.5,
             model={
-                # CNN filters MUST reduce spatial dims to 1x1 for VisionNet.
-                # 64x64 → 15x15 → 6x6 → 1x1  (verified mathematically)
-                # 64x64 → 16x16 → 8x8 → 1x1
                 "conv_filters": [
                     [32,  [8, 8], 4],
                     [64,  [4, 4], 2],
-                    [128, [8, 8], 1],   # 8x8 kernel natively reduces 8x8 map to 1x1
+                    [128, [8, 8], 1],
                 ],
                 "conv_activation": "relu",
                 "post_fcnet_hiddens": [256, 128],
@@ -122,7 +90,6 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
                 "use_lstm": False,
             },
         )
-        # RLlib 2.54: .rollouts() is hard-deprecated, must use .env_runners()
         .env_runners(
             num_env_runners=num_workers,
             rollout_fragment_length=200,
@@ -132,14 +99,13 @@ def build_mappo_config(num_workers: int = 2, num_gpus: float = 0.0):
         )
         .resources(num_gpus=1.0 if num_gpus >= 1.0 else 0.0)
         .framework("torch")
-        .debugging(log_level="ERROR")   # suppress all but real errors
+        .debugging(log_level="ERROR")
     )
 
     return config
 
 
 def _get(result, *keys, default=0.0):
-    """Safely read a metric from RLlib result dict."""
     for k in keys:
         v = result.get(k)
         if v is not None:
@@ -160,10 +126,9 @@ def train(
     ray.init(
         ignore_reinit_error=True,
         num_gpus=int(num_gpus) if num_gpus > 0 else None,
-        logging_level="ERROR",       # suppress Ray INFO spam
+        logging_level="ERROR",
     )
 
-    # RLlib 2.54 pyarrow backend requires absolute path for algo.save()
     checkpoint_dir = os.path.abspath(checkpoint_dir)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
