@@ -108,8 +108,20 @@ class MilitaryRadarRenderer:
         self._build_grid_surface()
         self._build_scanline_surface()
         self._build_hud_background()
+        self._build_battlefield_bg()
+        self._temp_layer = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
         self.initialized = True
 
+    def _build_battlefield_bg(self):
+        self._bg_surface = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+        cx, cy = BATTLEFIELD_SIZE // 2, BATTLEFIELD_SIZE // 2
+        for i in range(6):
+            r = BATTLEFIELD_SIZE // 2 - i * (BATTLEFIELD_SIZE // 12)
+            if r <= 0:
+                continue
+            surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+            surf.fill((0, 28, 18, 3 + i * 2))
+            self._bg_surface.blit(surf, (cx - r, cy - r))
 
     def _build_grid_surface(self):
         self._grid_surface = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
@@ -246,17 +258,11 @@ class MilitaryRadarRenderer:
 
 
     def _draw_battlefield_bg(self):
-        cx, cy = BATTLEFIELD_SIZE // 2, BATTLEFIELD_SIZE // 2
-        for i in range(6):
-            r = BATTLEFIELD_SIZE // 2 - i * (BATTLEFIELD_SIZE // 12)
-            if r <= 0:
-                continue
-            surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-            surf.fill((0, 28, 18, 3 + i * 2))
-            self.screen.blit(surf, (cx - r, cy - r))
+        self.screen.blit(self._bg_surface, (0, 0))
 
     def _draw_trails(self, state: dict):
-        trail_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+        self._temp_layer.fill((0, 0, 0, 0))
+        trail_surf = self._temp_layer
 
         for ent in state.get("red_entities", []):
             if not hasattr(ent, "trail") or not ent.trail:
@@ -287,7 +293,8 @@ class MilitaryRadarRenderer:
         self.sweep_angle += self.sweep_speed
 
         num_trail = 45
-        trail_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+        self._temp_layer.fill((0, 0, 0, 0))
+        trail_surf = self._temp_layer
         for i in range(num_trail):
             trail_angle = self.sweep_angle - i * 0.038
             alpha = max(0, int(55 * (1 - i / num_trail)))
@@ -300,7 +307,8 @@ class MilitaryRadarRenderer:
 
         end_x = int(cx + math.cos(self.sweep_angle) * sweep_radius)
         end_y = int(cy + math.sin(self.sweep_angle) * sweep_radius)
-        glow_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+        self._temp_layer.fill((0, 0, 0, 0))
+        glow_surf = self._temp_layer
         pygame.draw.line(glow_surf, (0, 255, 65, 90), (cx, cy), (end_x, end_y), 3)
         self.screen.blit(glow_surf, (0, 0))
         pygame.draw.line(self.screen, Colors.RADAR_GREEN, (cx, cy), (end_x, end_y), 1)
@@ -309,7 +317,8 @@ class MilitaryRadarRenderer:
         pygame.gfxdraw.aacircle(self.screen, cx, cy, 3, Colors.RADAR_GREEN)
 
     def _draw_range_rings(self, state: dict):
-        ring_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+        self._temp_layer.fill((0, 0, 0, 0))
+        ring_surf = self._temp_layer
 
         radar = state.get("radar")
         if radar and radar.operational:
@@ -485,7 +494,8 @@ class MilitaryRadarRenderer:
 
             elif fx.effect_type == "beam":
                 sx2, sy2 = self.world_to_screen(fx.x2, fx.y2)
-                beam_surf = pygame.Surface((BATTLEFIELD_SIZE, BATTLEFIELD_SIZE), pygame.SRCALPHA)
+                self._temp_layer.fill((0, 0, 0, 0))
+                beam_surf = self._temp_layer
                 pygame.draw.line(beam_surf, (*fx.color, alpha), (sx, sy), (sx2, sy2), 2)
                 pygame.draw.line(beam_surf, (255, 255, 255, alpha // 2), (sx, sy), (sx2, sy2), 1)
                 self.screen.blit(beam_surf, (0, 0))
